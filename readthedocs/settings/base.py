@@ -7,8 +7,7 @@ TEMPLATE_DEBUG = DEBUG
 TASTYPIE_FULL_DEBUG = True
 
 ADMINS = (
-    ('Charlie Leifer', 'coleifer@gmail.com'),
-    ('Eric Holscher', 'eric@ericholscher.com'),
+    ('System Administrators', 'sysadmins@cashstar.com'),
 )
 
 MANAGERS = ADMINS
