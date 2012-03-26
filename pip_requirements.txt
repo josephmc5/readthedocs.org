@@ -9,7 +9,7 @@ django-extensions
 django-haystack
 mimeparse
 django-profiles
-mercurial
+mercurial==2.0.2
 bzr
 github2
 httplib2
