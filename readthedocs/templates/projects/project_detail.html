@@ -2,10 +2,14 @@
 
 {% load markup %}
 
+{% block body_class %}project_detail{% endblock %}
+
 {% block title %}{{ project.name }}{% endblock %}
 
 {% block project_editing %}
-  {% include "core/project_bar.html" %}
+    {% with overview_active="active" %}
+        {% include "core/project_bar.html" %}
+    {% endwith %}
 {% endblock %}
 
 {% block content %}

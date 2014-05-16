@@ -14,11 +14,12 @@ Github
 If your project is hosted on Github, you can easily add a hook that will rebuild
 your docs whenever you push updates:
 
-* Go to the "admin" page for your project
-* Click "Service Hooks"
-* In the available service hooks, click "ReadTheDocs"
+* Go to the "Settings" page for your project
+* Click "Webhooks & Services"
+* In the "Services" section, click "Add service"
+* In the list of available services, click "ReadTheDocs"
 * Check "Active"
-* Click "Update Settings"
+* Click "Add service"
 
 Bitbucket
 -----------
@@ -27,10 +28,9 @@ If your project is hosted on Bitbucket, you can easily add a hook that will rebu
 your docs whenever you push updates:
 
 * Go to the "admin" page for your project
-* Click "Services"
-* In the available service hooks, click "POST"
-* Put "http://readthedocs.org/bitbucket" as the URL
-* Click "Save Settings"
+* Click "Hooks"
+* In the available service hooks, select "Read the Docs"
+* Click "Add hook"
 
 Others
 ------

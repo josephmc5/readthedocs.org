@@ -1,12 +1,16 @@
 {% extends "projects/base_project.html" %}
 
-{% load markup %}
+{% load i18n markup %}
 
 {% block title %}{{ project.name }}{% endblock %}
 
 {% block project_editing %}
-  {% include "core/project_bar.html" %}
+    {% with downloads_active="active" %}
+        {% include "core/project_bar.html" %}
+    {% endwith %}
 {% endblock %}
+
+{% block downloads-view %}active{% endblock %}
 
 {% block content %}
 
@@ -15,7 +19,7 @@
             <div class="module-wrapper">
 
               <div class="module-header">
-                <h3>Downloads</h3>
+                <h1>{% trans "Downloads" %}</h1>
               </div>
 
               <div class="module-list">

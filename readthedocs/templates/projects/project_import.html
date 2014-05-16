@@ -1,14 +1,40 @@
-{% extends "dashboard/base_dashboard.html" %}
+{% extends "base.html" %}
+{% load i18n %}
 
-{% block title %}Import an existing project{% endblock %}
+{% block title %}{% trans "Import an existing project" %}{% endblock %}
 
-{% block dash-nav-import %}active{% endblock %}
+{% block extra_links %}
+  <link rel="stylesheet" type="text/css" href="{{ MEDIA_URL }}lib/markitup/skins/simple/style.css" />
+  <link rel="stylesheet" type="text/css" href="{{ MEDIA_URL }}lib/markitup/sets/sphinx/editor.css" />
+{% endblock %}
 
-{% block content-header %}<h1>Import an existing project</h1>{% endblock %}
+{% block extra_scripts %}
+  <script type="text/javascript" src="{{ MEDIA_URL }}javascript/rtd-import.js"></script>
+  <script type="text/javascript" src="{{ MEDIA_URL }}lib/markitup/jquery.markitup.pack.js"></script>
+  <script type="text/javascript" src="{{ MEDIA_URL }}lib/markitup/sets/sphinx/editor.js"></script>
+  <script type="text/javascript">
+    $(document).ready(function() {
+      $("#id_description").markItUp(SphinxDocsSettings); // .markItUp(mySettings);
+    });
+  </script>
+{% endblock %}
+
+{% block dashboard_bar %}
+  {% with import_active="active" %}
+    {% include "dashboard/dashboard_bar.html" %}
+  {% endwith %}
+{% endblock %}
+
+{% block content-header %}<h1>{% trans "Import an existing project" %}</h1>{% endblock %}
 
 {% block content %}
   <form method="post" action=".">{% csrf_token %}
+    <p><input type="submit" value="{% trans "Create" %}" /></p>
     {{ form.as_p }}
-    <p><input type="submit" value="Create" /></p>
+    <p class="empty">
+      You can change how your project is built in your <em>Advanced Settings</em> once your project has been created.
+    </p>
+
+    <p><input type="submit" value="{% trans "Create" %}" /></p>
   </form>
 {% endblock %}

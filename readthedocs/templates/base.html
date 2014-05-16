@@ -1,5 +1,7 @@
+{% load i18n %}
+
 <!DOCTYPE html>
-<html lang="en">
+<html>
 
 <head>
 
@@ -8,16 +10,43 @@
   <link rel="icon" type="image/png" href="{{ MEDIA_URL }}images/favicon.png">
 
   <!-- title -->
-  <title>{% block title %}{% endblock %} | Read the Docs</title>
+  <title>{% block title %}{% endblock %} | {% block branding %}{% trans "Read the Docs" %} {% endblock %}</title>
 
   <!-- css -->
   <link rel="stylesheet" href="{{ MEDIA_URL }}css/core.css">
   {% block extra_links %}{% endblock %}
+
+  <!-- jquery -->
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+  <script type="text/javascript">
+    if (!window.jQuery) {
+      document.write('<script src="{{ MEDIA_URL }}javascript/jquery/jquery-2.0.3.min.js"><\/script>');
+    }
+  </script>
+  <script type="text/javascript" src="{{ MEDIA_URL }}javascript/jquery/jquery-migrate-1.2.1.min.js"></script>
+  <script type="text/javascript" src="{{ MEDIA_URL }}javascript/jquery/jquery-ui-1.8.24.custom.min.js"></script>
+
+  <script type="text/javascript" src="{{ MEDIA_URL }}javascript/instantsearch.js"></script>
+  <script type="text/javascript" src="{{ MEDIA_URL }}javascript/base.js"></script>
+
+  {% block extra_scripts %}{% endblock %}
+
+  <!-- typekit -->
+  <!-- Old typekit
+  <script type="text/javascript" src="//use.typekit.com/xgl8ypn.js"></script>
+  <script type="text/javascript">try{Typekit.load();}catch(e){}</script>
+  -->
+
+  <script type="text/javascript" src="//use.typekit.net/haq4xtp.js"></script>
+  <script type="text/javascript">try{Typekit.load();}catch(e){}</script>
+
 </head>
 
 <body class="{% block body_class %}{% endblock %}">
 
-    {% block header-wrapper %}{% include "core/header.html" %}{% endblock %}
+    {% block header-wrapper %}
+        {% include "core/header.html" %}
+    {% endblock %}
 
     {% block dashboard_bar %}{% endblock %}
 
@@ -29,8 +58,8 @@
 
         {% if request.GET.docs_not_built %}
           <div class="notification">
-            <p>You docs are currently being built.  It may take a moment for them to appear.</p>
-            <p>Read the Docs thanks you for your continued patience.</p>
+            <p>{% trans "Your docs are currently being built.  It may take a moment for them to appear." %}</p>
+            <p>{% trans "Read the Docs thanks you for your continued patience." %}</p>
           </div>
         {% endif %}
 
@@ -50,29 +79,58 @@
 
         <hr>
 
-        {% block footer-content %}
-        <p>2010.  Created by <a href="http://ericholscher.com/">Eric Holscher</a>, <a href="http://charlesleifer.com/">Charles Leifer</a>, and <a href="http://bobbygrace.info/">Bobby Grace</a> for the 2010 <a href="http://djangodash.com/">Django Dash</a>.
 
-        <a href="http://github.com/rtfd/readthedocs.org">Github</a> | <a href="http://read-the-docs.readthedocs.org">Docs</a>. Sponsored by <a href="http://revsys.com">RevSys</a>, <a href="http://www.python.org/psf/">Python Software Foundation</a>, <a href="http://blog.mozilla.com/webdev/">Mozilla Web Dev</a>, <a href="https://www.djangoproject.com/foundation/">Django Software Foundation</a>, and <a href="http://lab305.com">Lab305</a>.</p>
+        {% block footer-content %}
+        <p>{% blocktrans with "<a href='http://ericholscher.com/'>Eric Holscher</a>" as eric and "<a href='http://charlesleifer.com/'>Charles Leifer<a>" as charles and "<a href='http://bobbygrace.info/'>Bobby Grace</a>" as bobby and "<a href='http://djangodash.com/'>Django Dash</a>" as djangodash %}Copyright 2010-2013. Created by {{ eric }}, {{ charles }}, and {{ bobby }} for the 2010 {{ djangodash }}.{% endblocktrans %}
+        </p>
+        <a href="https://github.com/rtfd/readthedocs.org">Github</a> | <a href="http://read-the-docs.readthedocs.org">{%  trans "Docs" %}</a>.
+
+        {% trans 'Made by <a href="https://github.com/rtfd/readthedocs.org/graphs/contributors">humans</a>. Funded by <a href="https://www.gittip.com/readthedocs/">readers like you</a>.' %}
+        </p>
         {% endblock %}
 
+        <p>
+        Change Site Language
+        </p>
+
+
+        {% get_current_language as current_lang %}
+        <form action="/i18n/setlang/" method="post">{% csrf_token %}
+          <input name="next" type="hidden" value="/" />
+            {% csrf_token %}
+            <select style="float: left; height: 33px;" name="language">
+              {% for lang in LANGUAGES %}
+                {% if lang.0 == current_lang %}
+                <option selected="selected" value="{{ lang.0 }}">{{ lang.0|language_name_local }} [{{ lang.1 }}]</option>
+                {% else %}
+                <option value="{{ lang.0 }}">{{ lang.0|language_name_local }} [{{ lang.1 }}]</option>
+                {% endif %}
+                }
+              {% endfor %}
+            </select>
+            <input style="float: left; height: 33px; margin: 0px;" type="submit" value="Change Language" name="submit">
+        </form>
+
+        <br>
+        <br>
+
+        <p>
+        Read the Docs Announcements
+        <!-- Begin MailChimp Signup Form -->
+        <div id="mc_embed_signup">
+        <form action="http://readthedocs.us3.list-manage2.com/subscribe/post?u=a6a22369cc2b356379cf789ca&amp;id=1759385fc5" method="post" id="mc-embedded-subscribe-form" name="mc-embedded-subscribe-form" class="validate" target="_blank" novalidate>
+                <input  style="float: left; height: 20px;"type="email" value="" name="EMAIL" class="email" id="mce-EMAIL" placeholder="email address" required>
+                <input style="float: left; height: 33px; margin: 0px;" type="submit" value="Subscribe" name="subscribe" id="mc-embedded-subscribe">
+        </form>
+        </div>
+        </p>
+
+        <!--End mc_embed_signup-->
       </div>
     </div>
     <!-- END footer-->
 
 </body>
-
-<!-- jquery -->
-<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4/jquery.min.js"></script>
-<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.4/jquery-ui.min.js"></script>
-
-<script type="text/javascript" src="{{ MEDIA_URL }}javascript/rtd.js"></script>
-
-{% block extra_scripts %}{% endblock %}
-
-<!-- typekit -->
-<script type="text/javascript" src="http://use.typekit.com/xgl8ypn.js"></script>
-<script type="text/javascript">try{Typekit.load();}catch(e){}</script>
 
 <!-- BEGIN google analytics -->
 <script type="text/javascript">

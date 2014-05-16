@@ -21,7 +21,7 @@ You can use `Slumber <http://slumber.in/>`_ to build basic API wrappers in pytho
     val = api.project.get(slug='pip')
     #val = api.project('pip').get()
 
-    #val = api.build.get(pk=49252)
+    #val = api.build(49252).get()
     #val = api.build.get(project__slug='read-the-docs')
 
     #val = api.user.get(username='eric')
@@ -49,11 +49,11 @@ Example of adding a user to a project
     PASSWORD = 'test'
     
     user_to_add = 'coleifer'
-    project = 'read-the-docs'
+    project_slug = 'read-the-docs'
 
     api = slumber.API(base_url='http://readthedocs.org/api/v1/', authentication={'name': USERNAME, 'password': PASSWORD})
 
-    project = api.project.get(slug=project)
+    project = api.project.get(slug=project_slug)
     user = api.user.get(username=user_to_add)
     project_objects = project['objects'][0]
     user_objects = user['objects'][0]
@@ -64,14 +64,14 @@ Example of adding a user to a project
     print "Adding %s to %s" % (user_objects['username'], project_objects['slug'])
     api.project(project_objects['id']).put(data)
 
-    project2 = api.project.get(slug=project)
+    project2 = api.project.get(slug=project_slug)
     project2_objects = project2['objects'][0]
     print "Before users: %s" % project_objects['users']
     print "After users: %s" % project2_objects['users']
 
 
 API Endpoints
-=============
+-------------
 
 Feel free to use cURL and python to look at formatted json examples. You can also look at them in your browser, if it handles returned json.
 
@@ -512,7 +512,7 @@ File Search
 
    :arg search_term: Perform search with this term.
 
-.. http:response:: Retrieve a list of `File`_ objects that contain the search term.
+.. http:response:: Retrieve a list of File objects that contain the search term.
 
    .. sourcecode:: js
    

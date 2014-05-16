@@ -1,30 +1,27 @@
 import os
 import shutil
-import simplejson
 import zipfile
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.contrib.markup.templatetags.markup import restructuredtext
+from django.contrib.auth.models import User
 from django.core.urlresolvers import reverse
-from django.http import HttpResponseRedirect, HttpResponse, Http404
+from django.http import HttpResponseRedirect, Http404
 from django.shortcuts import get_object_or_404, render_to_response
 from django.template import RequestContext
-from django.template.defaultfilters import linebreaks
-from django.template.loader import render_to_string
 from django.views.generic.list_detail import object_list
 
-from builds.forms import AliasForm
+from guardian.shortcuts import assign
+
+from builds.forms import AliasForm, VersionForm
+from builds.filters import VersionFilter
+from builds.models import Version
+from projects.forms import (ImportProjectForm, build_versions_form,
+                            build_upload_html_form, SubprojectForm,
+                            UserForm, EmailHookForm, TranslationForm,
+                            AdvancedProjectForm)
+from projects.models import Project, EmailHook
 from projects import constants
-from projects.forms import (FileForm, CreateProjectForm,
-                            ImportProjectForm, FileRevisionForm,
-                            build_versions_form, build_upload_html_form,
-                            SubprojectForm)
-from projects.models import Project, File
-from projects.tasks import unzip_files
-
-
-
 
 
 @login_required
@@ -33,13 +30,20 @@ def project_dashboard(request):
     A dashboard!  If you aint know what that means you aint need to.
     Essentially we show you an overview of your content.
     """
+    qs = (Version.objects.active(user=request.user)
+          .filter(project__users__in=[request.user]))
+    filter = VersionFilter(constants.IMPORTANT_VERSION_FILTERS, queryset=qs)
     return object_list(
         request,
         queryset=request.user.projects.live(),
         page=int(request.GET.get('page', 1)),
         template_object_name='project',
         template_name='projects/project_dashboard.html',
+        extra_context={
+            'filter': filter,
+        }
     )
+
 
 @login_required
 def project_manage(request, project_slug):
@@ -47,36 +51,11 @@ def project_manage(request, project_slug):
     The management view for a project, where you will have links to edit
     the projects' configuration, edit the files associated with that
     project, etc.
-    """
-    project = get_object_or_404(request.user.projects.live(), slug=project_slug)
-    return object_list(
-        request,
-        queryset=project.files.live(),
-        extra_context={'project': project},
-        page=int(request.GET.get('page', 1)),
-        template_object_name='file',
-        template_name='projects/project_manage.html',
-    )
 
-@login_required
-def project_create(request):
+    Now redirects to the normal /projects/<slug> view.
     """
-    The view for creating a new project where the docs will be hosted
-    as objects and edited through the site
-    """
-    form = CreateProjectForm(request.POST or None)
-
-    if request.method == 'POST' and form.is_valid():
-        project = form.save()
-        form.instance.users.add(request.user)
-        project_manage = reverse('projects_manage', args=[project.slug])
-        return HttpResponseRedirect(project_manage)
-
-    return render_to_response(
-        'projects/project_create.html',
-        {'form': form},
-        context_instance=RequestContext(request)
-    )
+    return HttpResponseRedirect(reverse('projects_detail',
+                                        args=[project_slug]))
 
 @login_required
 def project_edit(request, project_slug):
@@ -84,18 +63,16 @@ def project_edit(request, project_slug):
     Edit an existing project - depending on what type of project is being
     edited (created or imported) a different form will be displayed
     """
-    project = get_object_or_404(request.user.projects.live(), slug=project_slug)
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
 
-    if project.is_imported:
-        form_class = ImportProjectForm
-    else:
-        form_class = CreateProjectForm
+    form_class = ImportProjectForm
 
     form = form_class(instance=project, data=request.POST or None)
 
     if request.method == 'POST' and form.is_valid():
         form.save()
-        project_dashboard = reverse('projects_manage', args=[project.slug])
+        project_dashboard = reverse('projects_detail', args=[project.slug])
         return HttpResponseRedirect(project_dashboard)
 
     return render_to_response(
@@ -105,12 +82,36 @@ def project_edit(request, project_slug):
     )
 
 @login_required
+def project_advanced(request, project_slug):
+    """
+    Edit an existing project - depending on what type of project is being
+    edited (created or imported) a different form will be displayed
+    """
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
+    form_class = AdvancedProjectForm
+    form = form_class(instance=project, data=request.POST or None, initial={'num_minor': 2, 'num_major': 2, 'num_point': 2})
+
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        project_dashboard = reverse('projects_detail', args=[project.slug])
+        return HttpResponseRedirect(project_dashboard)
+
+    return render_to_response(
+        'projects/project_advanced.html',
+        {'form': form, 'project': project},
+        context_instance=RequestContext(request)
+    )
+
+
+@login_required
 def project_versions(request, project_slug):
     """
     Shows the available versions and lets the user choose which ones he would
     like to have built.
     """
-    project = get_object_or_404(request.user.projects.live(), slug=project_slug)
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
 
     if not project.is_imported:
         raise Http404
@@ -121,7 +122,7 @@ def project_versions(request, project_slug):
 
     if request.method == 'POST' and form.is_valid():
         form.save()
-        project_dashboard = reverse('projects_manage', args=[project.slug])
+        project_dashboard = reverse('projects_detail', args=[project.slug])
         return HttpResponseRedirect(project_dashboard)
 
     return render_to_response(
@@ -130,13 +131,35 @@ def project_versions(request, project_slug):
         context_instance=RequestContext(request)
     )
 
+
+@login_required
+def project_version_detail(request, project_slug, version_slug):
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
+    version = get_object_or_404(project.versions.all(), slug=version_slug)
+
+    form = VersionForm(request.POST or None, instance=version)
+
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        url = reverse('projects_versions', args=[project.slug])
+        return HttpResponseRedirect(url)
+
+    return render_to_response(
+        'projects/project_version_detail.html',
+        {'form': form, 'project': project, 'version': version},
+        context_instance=RequestContext(request)
+    )
+
+
 @login_required
 def project_delete(request, project_slug):
     """
     Make a project as deleted on POST, otherwise show a form asking for
     confirmation of delete.
     """
-    project = get_object_or_404(request.user.projects.live(), slug=project_slug)
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
 
     if request.method == 'POST':
         # Remove the repository checkout
@@ -152,6 +175,7 @@ def project_delete(request, project_slug):
         context_instance=RequestContext(request)
     )
 
+
 @login_required
 def project_import(request):
     """
@@ -162,7 +186,8 @@ def project_import(request):
     if request.method == 'POST' and form.is_valid():
         project = form.save()
         form.instance.users.add(request.user)
-        project_manage = reverse('projects_manage', args=[project.slug])
+        assign('view_project', request.user, project)
+        project_manage = reverse('projects_detail', args=[project.slug])
         return HttpResponseRedirect(project_manage + '?docs_not_built=True')
 
     return render_to_response(
@@ -171,196 +196,6 @@ def project_import(request):
         context_instance=RequestContext(request)
     )
 
-@login_required
-def file_add(request, project_slug):
-    """
-    Add a file to a project, redirecting on success to the projects mgmt page
-    """
-    project = get_object_or_404(request.user.projects.live(), slug=project_slug)
-    file = File(project=project)
-
-    form = FileForm(instance=file, data=request.POST or None)
-
-    if request.method == 'POST' and form.is_valid():
-        form.instance.project = project
-        file = form.save()
-        project_manage = reverse('projects_manage', args=[project.slug])
-        return HttpResponseRedirect(project_manage)
-
-    return render_to_response(
-        'projects/file_add.html',
-        {'form': form, 'project': project},
-        context_instance=RequestContext(request)
-    )
-
-@login_required
-def file_edit(request, project_slug, file_id):
-    """
-    Edit an existing file
-    """
-    project = get_object_or_404(request.user.projects.live(), slug=project_slug)
-    file = get_object_or_404(project.files.live(), pk=file_id)
-
-    form = FileForm(instance=file, data=request.POST or None)
-
-    if request.method == 'POST' and form.is_valid():
-        form.save()
-        project_manage = reverse('projects_manage', args=[project.slug])
-        return HttpResponseRedirect(project_manage)
-
-    return render_to_response(
-        'projects/file_edit.html',
-        {'form': form, 'project': project, 'file': file},
-        context_instance=RequestContext(request)
-    )
-
-@login_required
-def file_delete(request, project_slug, file_id):
-    """
-    Mark a given file as deleted on POST, otherwise ask for confirmation
-    """
-    project = get_object_or_404(request.user.projects.live(), slug=project_slug)
-    file = get_object_or_404(project.files.live(), pk=file_id)
-
-    if request.method == 'POST':
-        file.status = constants.DELETED_STATUS
-        file.save()
-        project_manage = reverse('projects_manage', args=[project.slug])
-        return HttpResponseRedirect(project_manage)
-
-    return render_to_response(
-        'projects/file_delete.html',
-        {'project': project, 'file': file},
-        context_instance=RequestContext(request)
-    )
-
-@login_required
-def file_history(request, project_slug, file_id):
-    """
-    A view that provides diffing from current to any revision, and when
-    posted to allows you to revert
-    """
-    project = get_object_or_404(request.user.projects.live(), slug=project_slug)
-    file = get_object_or_404(project.files.live(), pk=file_id)
-
-    form = FileRevisionForm(file, request.POST or None)
-
-    if request.method == 'POST' and form.is_valid():
-        form.cleaned_data['revision'].apply()
-        history = reverse('projects_file_history', args=[project.slug, file.pk])
-        return HttpResponseRedirect(history)
-
-    return object_list(
-        request,
-        queryset=file.revisions.all(),
-        extra_context={'project': project, 'file': file, 'form': form},
-        page=int(request.GET.get('page', 1)),
-        template_object_name='revision',
-        template_name='projects/file_history.html',
-    )
-
-@login_required
-def file_diff(request, project_slug, file_id, from_id, to_id):
-    """
-    Return the contents of a given revision.
-    """
-    project = get_object_or_404(request.user.projects.live(), slug=project_slug)
-    file = get_object_or_404(project.files.live(), pk=file_id)
-
-    # grab the requested revisions
-    from_rev = get_object_or_404(file.revisions.all(), pk=from_id)
-    to_rev = get_object_or_404(file.revisions.all(), pk=to_id)
-
-    # generate a pretty html diff
-    diff = file.get_html_diff(from_rev.revision_number, to_rev.revision_number)
-    contents = linebreaks(to_rev.get_file_content())
-
-    payload = {
-        'diff': diff,
-        'contents': contents,
-        'display': str(to_rev),
-    }
-
-    # return it assuming json
-    return HttpResponse(simplejson.dumps(payload), mimetype='text/javascript')
-
-@login_required
-def file_preview(request):
-    """
-    Live preview of restructuredtext payload - currently not wired up
-    """
-    f = File(
-        heading=request.POST['heading'],
-        content=request.POST['content'],
-    )
-    rendered_base = render_to_string('projects/doc_file.rst.html', {'file': f})
-    rendered = restructuredtext(rendered_base)
-
-    json_response = simplejson.dumps({'payload': rendered})
-    return HttpResponse(json_response, mimetype='text/javascript')
-
-@login_required
-def export(request, project_slug):
-    """
-    Export a projects' docs as a .zip file, including the .rst source
-    """
-    project = Project.objects.live().get(users=request.user, slug=project_slug)
-    os.chdir(project.doc_path)
-    dir_path = os.path.join(settings.MEDIA_ROOT, 'export', project_slug)
-    zip_filename = '%s.zip' % project.slug
-    file_path = os.path.join(dir_path, zip_filename)
-    try:
-        os.makedirs(dir_path)
-    except OSError:
-        #Directory already exists
-        pass
-
-    # Create a <slug>.zip file containing all files in file_path
-    archive = zipfile.ZipFile(zip_filename, 'w')
-    for root, subfolders, files in os.walk(file_path):
-        for file in files:
-            archive.write(os.path.join(root, file))
-    archive.close()
-
-    return HttpResponseRedirect(os.path.join(settings.MEDIA_URL, 'export', project_slug, zip_filename))
-
-
-def upload_html(request, project_slug):
-    proj = get_object_or_404(Project.objects.all(), slug=project_slug)
-    FormClass = build_upload_html_form(proj)
-    if request.method == 'POST':
-        form = FormClass(request.POST, request.FILES, request=request)
-        if form.is_valid():
-            file = request.FILES['content']
-            version_slug = form.cleaned_data['version']
-            version = proj.versions.get(slug=version_slug)
-            #Copy file
-            dest_dir = os.path.join(settings.UPLOAD_ROOT, proj.slug)
-            if not os.path.exists(dest_dir):
-                os.makedirs(dest_dir)
-            dest_file = os.path.join(dest_dir, file.name)
-            destination = open(dest_file, 'wb+')
-            for chunk in file.chunks():
-                destination.write(chunk)
-            destination.close()
-
-            #Mark version active.
-            version.active = True
-            version.uploaded = True
-            version.built = False
-            version.save()
-
-            #Extract file into the correct place.
-            html_path = proj.rtd_build_path(version.slug)
-            unzip_files(dest_file, html_path)
-            return HttpResponseRedirect(proj.get_absolute_url())
-    else:
-        form = FormClass(request=request)
-    return render_to_response(
-        'projects/upload_html.html',
-        {'form': form, 'project': proj},
-        context_instance=RequestContext(request)
-    )
 
 @login_required
 def edit_alias(request, project_slug, id=None):
@@ -380,6 +215,7 @@ def edit_alias(request, project_slug, id=None):
         context_instance=RequestContext(request)
     )
 
+
 @login_required
 def list_alias(request, project_slug):
     proj = get_object_or_404(Project.objects.all(), slug=project_slug)
@@ -390,15 +226,17 @@ def list_alias(request, project_slug):
         template_name='projects/alias_list.html',
     )
 
+
 @login_required
 def project_subprojects(request, project_slug):
-    project = get_object_or_404(request.user.projects.live(), slug=project_slug)
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
 
     form = SubprojectForm(data=request.POST or None, parent=project)
 
     if request.method == 'POST' and form.is_valid():
         form.save()
-        project_dashboard = reverse('projects_manage', args=[project.slug])
+        project_dashboard = reverse('projects_subprojects', args=[project.slug])
         return HttpResponseRedirect(project_dashboard)
 
     subprojects = project.subprojects.all()
@@ -409,6 +247,7 @@ def project_subprojects(request, project_slug):
         context_instance=RequestContext(request)
     )
 
+
 @login_required
 def project_subprojects_delete(request, project_slug, child_slug):
     parent = get_object_or_404(request.user.projects.live(), slug=project_slug)
@@ -416,5 +255,106 @@ def project_subprojects_delete(request, project_slug, child_slug):
 
     parent.remove_subproject(child)
 
-    project_dashboard = reverse('projects_manage', args=[parent.slug])
+    project_dashboard = reverse('projects_detail', args=[parent.slug])
+    return HttpResponseRedirect(project_dashboard)
+
+
+@login_required
+def project_users(request, project_slug):
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
+
+    form = UserForm(data=request.POST or None, project=project)
+
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        project_dashboard = reverse('projects_users', args=[project.slug])
+        return HttpResponseRedirect(project_dashboard)
+
+    users = project.users.all()
+
+    return render_to_response(
+        'projects/project_users.html',
+        {'form': form, 'project': project, 'users': users},
+        context_instance=RequestContext(request)
+    )
+
+
+@login_required
+def project_users_delete(request, project_slug):
+    if request.method != 'POST':
+        raise Http404
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
+    user = get_object_or_404(User.objects.all(),
+                             username=request.POST.get('username'))
+    if user == request.user:
+        raise Http404
+    project.users.remove(user)
+    project_dashboard = reverse('projects_users', args=[project.slug])
+    return HttpResponseRedirect(project_dashboard)
+
+
+@login_required
+def project_notifications(request, project_slug):
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
+    form = EmailHookForm(data=request.POST or None, project=project)
+
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        project_dashboard = reverse('projects_notifications',
+                                    args=[project.slug])
+        return HttpResponseRedirect(project_dashboard)
+
+    emails = project.emailhook_notifications.all()
+
+    return render_to_response(
+        'projects/project_notifications.html',
+        {'form': form, 'project': project, 'emails': emails},
+        context_instance=RequestContext(request)
+    )
+
+
+@login_required
+def project_notifications_delete(request, project_slug):
+    if request.method != 'POST':
+        raise Http404
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
+    notification = get_object_or_404(EmailHook.objects.all(),
+                                     email=request.POST.get('email'))
+    notification.delete()
+    project_dashboard = reverse('projects_notifications', args=[project.slug])
+    return HttpResponseRedirect(project_dashboard)
+
+
+@login_required
+def project_translations(request, project_slug):
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
+    form = TranslationForm(data=request.POST or None, parent=project)
+
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        project_dashboard = reverse('projects_translations',
+                                    args=[project.slug])
+        return HttpResponseRedirect(project_dashboard)
+
+    lang_projects = project.translations.all()
+
+    return render_to_response(
+        'projects/project_translations.html',
+        {'form': form, 'project': project, 'lang_projects': lang_projects},
+        context_instance=RequestContext(request)
+    )
+
+
+@login_required
+def project_translations_delete(request, project_slug, child_slug):
+    project = get_object_or_404(request.user.projects.live(),
+                                slug=project_slug)
+    subproj = get_object_or_404(Project.objects.public(), slug=child_slug)
+    project.translations.remove(subproj)
+    project_dashboard = reverse('projects_translations', args=[project.slug])
     return HttpResponseRedirect(project_dashboard)

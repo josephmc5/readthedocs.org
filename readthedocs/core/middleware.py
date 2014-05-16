@@ -1,104 +1,128 @@
+import logging
+import os
+
+from django.utils.translation import ugettext_lazy as _
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
 from django.http import Http404
-from django.utils.encoding import smart_unicode
+
+from projects.models import Project
 
 import redis
 
-#Thanks to debug-toolbar for the response-replacing code.
-_HTML_TYPES = ('text/html', 'application/xhtml+xml')
+log = logging.getLogger(__name__)
 
-OUR_CODE = """
-<hr> <!-- End original user content -->
-<script type="text/javascript">
-  var _gaq = _gaq || [];
-  _gaq.push(['_setAccount', 'UA-17997319-1']);
-  _gaq.push(['_trackPageview']);
-  (function() {
-    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
-    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
-    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
-  })();
-</script>
-
-<style type="text/css">
-.badge { position: fixed; display: block; bottom: 5px; height: 40px; text-indent: -9999em; border-radius: 3px; -moz-border-radius: 3px; -webkit-border-radius: 3px; box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2), 0 1px 0 rgba(255, 255, 255, 0.2) inset; -moz-box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2), 0 1px 0 rgba(255, 255, 255, 0.2) inset; -webkit-box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2), 0 1px 0 rgba(255, 255, 255, 0.2) inset; }
-.badge.rtd { background: #257597 url(http://media.readthedocs.org/images/badge-rtd.png) top left no-repeat; border: 1px solid #282E32; width: 160px; right: 5px; }
-</style>
-
-<a href="http://readthedocs.org?fromdocs=middleware" class="badge rtd">Brought to you by Read the Docs</a>
-"""
-
-def replace_insensitive(string, target, replacement):
-    """
-    Similar to string.replace() but is case insensitive
-    Code borrowed from: http://forums.devshed.com/python-programming-11/case-insensitive-string-replace-490921.html
-    """
-    no_case = string.lower()
-    index = no_case.rfind(target.lower())
-    if index >= 0:
-        return string[:index] + replacement + string[index + len(target):]
-    else: # no results so return the original string
-        return string
-
+LOG_TEMPLATE = "(Middleware) {msg} [{host}{path}]"
 
 class SubdomainMiddleware(object):
     def process_request(self, request):
-        if settings.DEBUG:
-            return None
         host = request.get_host()
+        path = request.get_full_path()
+        log_kwargs = dict(host=host, path=path)
+        if settings.DEBUG:
+            log.debug(LOG_TEMPLATE.format(msg='DEBUG on, not processing middleware', **log_kwargs))
+            return None
         if ':' in host:
             host = host.split(':')[0]
         domain_parts = host.split('.')
-        #Google was finding crazy www.blah.readthedocs.org domains.
-        if len(domain_parts) > 3:
-            if not settings.DEBUG:
-                raise Http404('Invalid hostname')
+
         if len(domain_parts) == 3:
             subdomain = domain_parts[0]
-            if not (subdomain.lower() == 'www') and 'readthedocs.org' in host:
+            # Serve subdomains
+            is_www = subdomain.lower() == 'www'
+            is_ssl = subdomain.lower() == 'ssl'
+            if not is_www and not is_ssl and settings.PRODUCTION_DOMAIN in host:
                 request.subdomain = True
                 request.slug = subdomain
                 request.urlconf = 'core.subdomain_urls'
                 return None
-        if len(domain_parts) == 3:
-            subdomain = domain_parts[0]
-            if not (subdomain.lower() == 'www') and 'rtfd.org' in host:
-                request.slug = subdomain
-                request.urlconf = 'core.djangome_urls'
-                return None
-        if 'readthedocs.org' not in host \
-            and 'localhost' not in host \
-            and 'testserver' not in host:
+        # Serve CNAMEs
+        if settings.PRODUCTION_DOMAIN not in host and \
+           'localhost' not in host and \
+           'testserver' not in host:
             request.cname = True
             try:
-                slug = cache.get(host)
-                if not slug:
-                    redis_conn = redis.Redis(**settings.REDIS)
-                    from dns import resolver
-                    answer = [ans for ans in resolver.query(host, 'CNAME')][0]
-                    domain = answer.target.to_unicode()
-                    slug = domain.split('.')[0]
-                    cache.set(host, slug, 60*60)
-                    #Cache the slug -> host mapping permanently.
-                    redis_conn.sadd("rtd_slug:v1:%s" % slug, host)
-                request.slug = slug
+                request.slug = request.META['HTTP_X_RTD_SLUG']
                 request.urlconf = 'core.subdomain_urls'
-            except:
-                #Some crazy person is CNAMEing to us. 404.
-                if not settings.DEBUG:
-                    raise Http404('Invalid Host Name.')
-        #Normal request.
+                request.rtdheader = True
+                log.debug(LOG_TEMPLATE.format(msg='X-RTD-Slug header detetected: %s' % request.slug, **log_kwargs))
+            except KeyError:
+                # Try header first, then DNS
+                try:
+                    slug = cache.get(host)
+                    if not slug:
+                        redis_conn = redis.Redis(**settings.REDIS)
+                        from dns import resolver
+                        answer = [ans for ans in resolver.query(host, 'CNAME')][0]
+                        domain = answer.target.to_unicode()
+                        slug = domain.split('.')[0]
+                        cache.set(host, slug, 60*60)
+                        #Cache the slug -> host mapping permanently.
+                        redis_conn.sadd("rtd_slug:v1:%s" % slug, host)
+                        log.debug(LOG_TEMPLATE.format(msg='CNAME cached: %s->%s' % (slug, host), **log_kwargs))
+                    request.slug = slug
+                    request.urlconf = 'core.subdomain_urls'
+                    log.debug(LOG_TEMPLATE.format(msg='CNAME detetected: %s' % request.slug, **log_kwargs))
+                except:
+                    # Some crazy person is CNAMEing to us. 404.
+                    log.debug(LOG_TEMPLATE.format(msg='CNAME 404', **log_kwargs))
+                    raise Http404(_('Invalid hostname'))
+        # Google was finding crazy www.blah.readthedocs.org domains.
+        # Block these explicitly after trying CNAME logic.
+        if len(domain_parts) > 3:
+            log.debug(LOG_TEMPLATE.format(msg='Allowing long domain name', **log_kwargs))
+            #raise Http404(_('Invalid hostname'))
+        # Normal request.
         return None
 
-    def process_response(self, request, response):
-        #Try and make this match as little as possible.
-        if response.status_code == 200 and '_static' not in request.path and '_images' not in request.path:
-            if getattr(request, 'add_badge', False):
-                response.content = replace_insensitive(
-                    smart_unicode(response.content),
-                    "</body>",
-                    smart_unicode(OUR_CODE + "</body>"))
-            if response.get('Content-Length', None):
-                response['Content-Length'] = len(response.content)
-        return response
+
+class SingleVersionMiddleware(object):
+    """Reset urlconf for requests for 'single_version' docs.
+
+    In settings.MIDDLEWARE_CLASSES, SingleVersionMiddleware must follow
+    after SubdomainMiddleware.
+
+    """
+    def _get_slug(self, request):
+        """Get slug from URLs requesting docs.
+
+        If URL is like '/docs/<project_name>/', we split path
+        and pull out slug.
+
+        If URL is subdomain or CNAME, we simply read request.slug, which is
+        set by SubdomainMiddleware.
+
+        """
+        slug = None
+        if hasattr(request, 'slug'):
+            # Handle subdomains and CNAMEs.
+            slug = request.slug
+        else:
+            # Handle '/docs/<project>/' URLs
+            path = request.get_full_path()
+            path_parts = path.split('/')
+            if len(path_parts) > 2 and path_parts[1] == 'docs':
+                slug = path_parts[2]
+        return slug
+
+    def process_request(self, request):
+        slug = self._get_slug(request)
+        if slug:
+            try:
+                proj = Project.objects.get(slug=slug)
+            except (ObjectDoesNotExist, MultipleObjectsReturned):
+                # Let 404 be handled further up stack.
+                return None
+
+            if getattr(proj, 'single_version', False):
+                request.urlconf = 'core.single_version_urls'
+                # Logging
+                host = request.get_host()
+                path = request.get_full_path()
+                log_kwargs = dict(host=host, path=path)
+                log.debug(LOG_TEMPLATE.format(
+                    msg='Handling single_version request', **log_kwargs)
+                )
+
+        return None

@@ -1,3 +1,5 @@
+.. _installing-read-the-docs:
+
 Installation
 =============
 
@@ -7,6 +9,7 @@ First, obtain Python_ and virtualenv_ if you do not already have them. Using a
 virtual environment will make the installation easier, and will help to avoid
 clutter in your system-wide libraries. You will also need Git_ in order to
 clone the repository.
+
 
 .. _Python: http://www.python.org/
 .. _virtualenv: http://pypi.python.org/pypi/virtualenv
@@ -19,16 +22,37 @@ activate it::
     cd rtd
     source bin/activate
 
+
+You will need to verify that your pip version is higher than 1.5 you can do this as such::
+
+    pip --version
+    
+If this is not the case please update your pip version before continuing::
+
+    pip install --upgrade pip
+
 Create a folder in here, and clone the repository::
 
     mkdir checkouts
     cd checkouts
-    git clone http://github.com/rtfd/readthedocs.org.git
+    git clone https://github.com/rtfd/readthedocs.org.git
 
 Next, install the dependencies using ``pip`` (included with virtualenv_)::
 
     cd readthedocs.org
     pip install -r pip_requirements.txt
+
+.. note::
+
+    If you are having trouble on OS X Mavericks (or possibly other versions of
+    OS X) with building ``lxml``, you probably might need to use Homebrew_
+    to ``brew install libxml2``, and invoke the install with::
+
+        CFLAGS=-I/usr/local/opt/libxml2/include/libxml2 \
+        LDFLAGS=-L/usr/local/opt/libxml2/lib \
+        pip install -r pip_requirements.txt
+
+.. _Homebrew: http://brew.sh/
 
 This may take a while, so go grab a beverage. When it's done, build your
 database::
@@ -40,24 +64,31 @@ This will prompt you to create a superuser account for Django. Do that. Then::
 
     ./manage.py migrate
 
-If you like, you can load up some test projects::
+Go ahead and load in a couple users and a test projects::
 
     ./manage.py loaddata test_data
-    ./manage.py update_repos
 
-Or you can skip it and start with a fresh, empty site. Finally, you're ready to
-start the webserver::
+Finally, you're ready to start the webserver::
 
     ./manage.py runserver
  
 Visit http://127.0.0.1:8000/ in your browser to see how it looks; you can use
 the admin interface via http://127.0.0.1:8000/admin (logging in with the
 superuser account you just created).
-                   
+
+While the webserver is running, you can build documentation for the latest version of
+a project called 'pip' with the ``update_repos`` command.  You can replace 'pip'
+with the name of any added project::
+
+   ./manage.py update_repos pip
+
 
 Solr (Search) Setup
 -------------------
-Apache Solr is used to index and search documents. 
+
+Apache Solr is used to index and search documents.
+This is an optional requirement,
+and only necessary if you want to develop or use search.
 
 Additional python requirements necessary to use Solr::
 
@@ -66,7 +97,7 @@ Additional python requirements necessary to use Solr::
 
 Fetch and unpack Solr::
 
-    curl -O http://apache.mirrors.tds.net/lucene/solr/3.5.0/apache-solr-3.5.0.tgz
+    curl -O http://archive.apache.org/dist/lucene/solr/3.5.0/apache-solr-3.5.0.tgz
     tar xvzf apache-solr-3.5.0.tgz && SOLR_PATH=`pwd`/apache-solr-3.5.0/example
 
 Generate the schema.xml file::
@@ -97,9 +128,9 @@ What's available
 ----------------
 
 After registering with the site (or creating yourself a superuser account),
-you will be able to log in and view the `dashboard <http://readthedocs.org/dashboard/>`_
+you will be able to log in and view the `dashboard <http://readthedocs.org/dashboard/>`_.
 
-From the dashboard you can either create new documentation, or import your existing
+From the dashboard you can import your existing
 docs provided that they are in a git or mercurial repo.
 
 
@@ -123,17 +154,34 @@ we'll pull your code, extract your docs, and build them!  We make available
 a post-commit webhook that can be configured to update the docs on our site
 whenever you commit to your repo, effectively letting you 'set it and forget it'.
 
-Caveats
--------
 
-Usually, `readthedocs.org <http://readthedocs.org>`_ generates its own ``conf.py``
-files, by extracting a few values (such as ``copyright``, ``html_theme``,
-``source_suffix`` and ``version``) from the project's ``conf.py`` file.  This is to
-avoid the possibility of arbitrary code execution within the python files.  As a
-result, projects with special extensions, themes, or templates won't work
-correctly.  We are planning to support popular themes in future.
+Installation with Vagrant
+-------------------------
 
-For projects which need to be able to run code in conf.py, there is a white list
-for users that we trust to have these abilities.  To get on the white list, ask
-on IRC (#readthedocs on `Freenode (chat.freenode.net)
-<http://webchat.freenode.net>`_).
+It is also possible to run RTD using Vagrant_, using Vagrant v1.1+ and the
+`Salt plugin`_ for Vagrant_, by running the following commands::
+
+    vagrant plugin install vagrant-salt
+    vagrant up
+
+The Vagrant_ virtual machine will take a while to create and provision, and
+will leave a virtual machine running an instance of RTD with the following
+settings:
+
+:URL: http://localhost:8000
+:Username: docs
+:Password: docs
+
+.. _Vagrant: http://www.vagrantup.com/
+.. _Salt plugin: https://github.com/saltstack/salty-vagrant
+
+.. note::
+
+    The hostname `localhost` is used here, though it is possible to test RTD
+    and subdomains by adding entries in `/etc/hosts` for `readthedocs.org` and
+    your subdomains on readthedocs.org, pointing to `127.0.0.1` on the host
+    system. The site will be available at http://readthedocs.org:8000 with the
+    proper records set up.
+
+The repository is shared with the host file system, so edits can be made
+outside the virtual environment.

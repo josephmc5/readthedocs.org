@@ -4,7 +4,7 @@ Original Authors
 * Eric Holscher
 * Bobby Grace
 
-Opeartions Team
+Operations Team
 ===============
 
 * Eric Holscher
@@ -30,5 +30,8 @@ Awesome Contributors
 * Michael Kurze
 * Dag Odenhall
 * Jacob Burch
+* Julen Ruiz Aizpuru
+* Manuel F. Viera
+* Tom Offermann
 
 For a list of all the contributions: https://github.com/rtfd/readthedocs.org/contributors
